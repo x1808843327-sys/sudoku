@@ -3,26 +3,45 @@
 Basic Sudoku Solver using DFS Backtracking.
 
 This version adds initial board validation to ensure the input is legal.
+Now includes statistics tracking for performance comparison.
 """
 
 from typing import List, Optional
+from dataclasses import dataclass
+import time
 
 Board = List[List[int]]  # 9x9 Sudoku board, where 0 means empty
 
 
+@dataclass
+class SolveStats:
+    """统计信息"""
+    nodes: int = 0  # 搜索节点数（尝试赋值次数）
+    backtracks: int = 0  # 回溯次数
+    solve_time: float = 0.0  # 求解时间（秒）
+
+
 class SudokuSolver:
     def __init__(self):
-        pass
+        self.stats = SolveStats()
 
     def solve(self, board: Board) -> Optional[Board]:
         """Solve the Sudoku board. Returns the solved board or None if unsolvable."""
+        # 重置统计信息
+        self.stats = SolveStats()
+        
         # 1. First, validate the initial board (no duplicates in rows/columns/boxes)
         if not self._is_board_valid(board):
             print("Initial board is invalid (duplicates exist).")
             return None
+        
         # 2. Proceed with backtracking only if the initial board is legal
+        start_time = time.time()
         if self._backtrack(board):
+            self.stats.solve_time = time.time() - start_time
             return board
+        
+        self.stats.solve_time = time.time() - start_time
         print("No solution found.")
         return None
 
@@ -72,14 +91,13 @@ class SudokuSolver:
 
         for num in range(1, 10):
             if self._is_valid(board, row, col, num):
-                print(f"Placing {num} at ({row}, {col})")
+                self.stats.nodes += 1  # 统计尝试次数
                 board[row][col] = num
                 if self._backtrack(board):
                     return True
                 board[row][col] = 0  # Backtrack
-                print(f"Backtracking at ({row}, {col})")
+                self.stats.backtracks += 1  # 统计回溯次数
 
-        print(f"No valid number for ({row}, {col}).")
         return False
 
     def _find_empty_cell(self, board: Board) -> Optional[tuple]:

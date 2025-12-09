@@ -1,15 +1,32 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import time
 import random
 import threading
+from copy import deepcopy
+import sys
+import os
 
-# ---------------------- 导入成员A的DFS算法（需确保A的文件在同一目录）----------------------
-# 注：需成员A提供改造后的 dfs_solver.py，内容见模块1的算法模板
+# ---------------------- 修复导入路径 ----------------------
+# 将项目根目录添加到 Python 路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# ---------------------- 导入算法和生成器 ----------------------
 try:
-    from dfs_solver import DFSSudokuSolver
-except ImportError:
-    print("警告：未找到A的算法文件，请确保 dfs_solver.py 与当前文件在同一目录")
+    from src.algorithms.solver_basic_v1 import SudokuSolver as BasicSolver
+    from src.algorithms.solver_mrv_lcv import MRVLCVSolver
+    from src.algorithms.solver_ac3_mrv_lcv import AC3_MRV_LCV_Solver
+    from src.generator.sudoku_generator import SudokuGenerator
+    print("✓ 算法和生成器加载成功")
+except ImportError as e:
+    print(f"✗ 警告：导入算法或生成器失败 - {e}")
+    BasicSolver = None
+    MRVLCVSolver = None
+    AC3_MRV_LCV_Solver = None
+    SudokuGenerator = None
 
 # ---------------------- 1. 初始化主窗口 ----------------------
 root = tk.Tk()
@@ -284,12 +301,10 @@ def run_next_animation():
 def disable_buttons():
     fill_btn.config(state="disabled")
     clear_btn.config(state="disabled")
-    test_fill_btn.config(state="disabled")
-    test_backtrack_btn.config(state="disabled")
-    test_single_btn.config(state="disabled")
     solve_btn.config(state="disabled")
     compare_btn.config(state="disabled")
     difficulty_menu.config(state="disabled")
+    alg_menu.config(state="disabled")  # 🔸 新增：禁用算法下拉框
     for row in range(9):
         for col in range(9):
             sudoku_entries[row][col].config(state="readonly")
@@ -297,12 +312,10 @@ def disable_buttons():
 def enable_buttons():
     fill_btn.config(state="normal")
     clear_btn.config(state="normal")
-    test_fill_btn.config(state="normal")
-    test_backtrack_btn.config(state="normal")
-    test_single_btn.config(state="normal")
     solve_btn.config(state="normal")
     compare_btn.config(state="normal")
     difficulty_menu.config(state="readonly")
+    alg_menu.config(state="readonly")  # 🔸 新增：恢复算法下拉框
     for row in range(9):
         for col in range(9):
             sudoku_entries[row][col].config(state="normal")
@@ -330,9 +343,38 @@ button_frame = ttk.Frame(root, padding="0 10 0 10")
 button_frame.pack(fill=tk.X, padx=20)
 
 def fill_with_difficulty():
+    """使用生成器根据难度生成数独"""
+    if SudokuGenerator is None:
+        messagebox.showerror("错误", "数独生成器未加载")
+        return
+    
     level = difficulty_var.get()
-    sudoku_data = get_puzzle_by_difficulty(level)
-    fill_sudoku(sudoku_data)
+    difficulty_map = {"简单": "Easy", "中等": "Medium", "困难": "Hard"}
+    target_difficulty = difficulty_map.get(level, "Medium")
+    
+    # 在后台线程生成，避免UI卡顿
+    def generate_in_thread():
+        disable_buttons()
+        perf_labels['status'].config(text=f"正在生成{level}数独...", foreground="#ff9900")
+        
+        try:
+            generator = SudokuGenerator()
+            puzzle, info = generator.generate_puzzle_with_difficulty(
+                target_difficulty=target_difficulty,
+                symmetric=True,
+                max_retries=20
+            )
+            root.after(0, lambda: fill_sudoku(puzzle))
+            root.after(0, lambda: perf_labels['status'].config(
+                text=f"已生成 {info['level']} 难度（提示数:{info['clues']}）", 
+                foreground="#0066cc"
+            ))
+        except Exception as e:
+            root.after(0, lambda: messagebox.showerror("生成失败", str(e)))
+        finally:
+            root.after(0, enable_buttons)
+    
+    threading.Thread(target=generate_in_thread, daemon=True).start()
 
 fill_btn = ttk.Button(button_frame, text="生成数独（按难度）", command=fill_with_difficulty)
 fill_btn.pack(side=tk.LEFT, padx=5)
@@ -340,32 +382,7 @@ fill_btn.pack(side=tk.LEFT, padx=5)
 clear_btn = ttk.Button(button_frame, text="清空网格", command=clear_sudoku)
 clear_btn.pack(side=tk.LEFT, padx=5)
 
-# 动画测试按钮
-test_frame = ttk.Frame(root, padding="0 0 0 10")
-test_frame.pack(fill=tk.X, padx=20)
 
-def test_fill_animation():
-    clear_sudoku()
-    root.after(500, animation_fill_cell, 0, 0, 5)
-
-test_fill_btn = ttk.Button(test_frame, text="测试填数高亮动画", command=test_fill_animation)
-test_fill_btn.pack(side=tk.LEFT, padx=5)
-
-def test_backtrack_animation():
-    animation_fill_cell(1, 1, 3)
-    root.after(1000, animation_backtrack_cell, 1, 1)
-
-test_backtrack_btn = ttk.Button(test_frame, text="测试回溯撤销动画", command=test_backtrack_animation)
-test_backtrack_btn.pack(side=tk.LEFT, padx=5)
-
-def test_single_fill_animation():
-    clear_sudoku()
-    add_animation_to_queue(animation_single_fill, 2, 2, 7)
-    add_animation_to_queue(animation_single_fill, 3, 3, 9)
-    add_animation_to_queue(animation_single_fill, 4, 4, 2)
-
-test_single_btn = ttk.Button(test_frame, text="测试单步填数过渡", command=test_single_fill_animation)
-test_single_btn.pack(side=tk.LEFT, padx=5)
 
 # ---------------------- 10. 算法选择区 ----------------------
 algorithm_frame = ttk.Frame(root, padding="0 0 0 10")
@@ -375,7 +392,7 @@ alg_label = ttk.Label(algorithm_frame, text="选择求解算法：")
 alg_label.pack(side=tk.LEFT, padx=5)
 
 algorithm_var = tk.StringVar(value="请选择算法")
-alg_options = ["基础DFS算法（成员A）", "进阶CSP算法（成员C）"]
+alg_options = ["基础DFS算法", "MRV+LCV算法", "AC3+MRV+LCV算法"]
 alg_menu = ttk.Combobox(algorithm_frame, textvariable=algorithm_var, values=alg_options, state="readonly")
 alg_menu.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
 
@@ -441,6 +458,7 @@ def solve_sudoku():
     if selected_alg == "请选择算法":
         perf_labels['status'].config(text="请先选择算法", foreground="#cc0000")
         return
+    
     sudoku_data = read_sudoku()
     if all(value == 0 for row in sudoku_data for value in row):
         perf_labels['status'].config(text="请输入或生成数独", foreground="#cc0000")
@@ -457,52 +475,146 @@ def solve_sudoku():
     perf_labels['status'].config(text="求解中...", foreground="#ff9900")
     
     # 启动算法
-    solve_start_time = time.time()
-    try:
-        if selected_alg == "基础DFS算法（成员A）":
-            if 'DFSSudokuSolver' not in globals():
-                raise ImportError("未找到A的DFS算法")
-            solver = DFSSudokuSolver(
-                animate_fill=animation_fill_cell,
-                animate_backtrack=animation_backtrack_cell,
-                update_perf=update_perf_real_time
-            )
-            # 线程运行算法，避免UI阻塞
-            def run_solver():
-                success, result_board, final_perf = solver.run(sudoku_data)
-                root.after(0, finish_solve, success, result_board, final_perf)
-            threading.Thread(target=run_solver, daemon=True).start()
+    def run_solver():
+        try:
+            start_time = time.time()
+            puzzle = deepcopy(sudoku_data)
+            
+            if selected_alg == "基础DFS算法":
+                if BasicSolver is None:
+                    raise ImportError("基础DFS算法未加载")
+                solver = BasicSolver()
+                solution = solver.solve(puzzle)
+                
+                # 使用solver.stats获取统计信息
+                final_perf = {
+                    'time': solver.stats.solve_time,
+                    'nodes': solver.stats.nodes,
+                    'backtracks': solver.stats.backtracks,
+                    'status': '成功' if solution else '失败'
+                }
+                root.after(0, finish_solve, solution is not None, solution, final_perf)
+            
+            elif selected_alg == "MRV+LCV算法":
+                if MRVLCVSolver is None:
+                    raise ImportError("MRV+LCV算法未加载")
+                solver = MRVLCVSolver()
+                solution = solver.solve(puzzle)
+                
+                final_perf = {
+                    'time': solver.stats.solve_time,
+                    'nodes': solver.stats.nodes,
+                    'backtracks': solver.stats.backtracks,
+                    'status': '成功' if solution else '失败'
+                }
+                root.after(0, finish_solve, solution is not None, solution, final_perf)
+            
+            elif selected_alg == "AC3+MRV+LCV算法":
+                if AC3_MRV_LCV_Solver is None:
+                    raise ImportError("AC3+MRV+LCV算法未加载")
+                solver = AC3_MRV_LCV_Solver()
+                solution = solver.solve(puzzle)
+                
+                final_perf = {
+                    'time': solver.stats.solve_time,
+                    'nodes': solver.stats.nodes,
+                    'backtracks': solver.stats.backtracks,
+                    'status': '成功' if solution else '失败'
+                }
+                root.after(0, finish_solve, solution is not None, solution, final_perf)
+            
+            else:
+                raise ValueError(f"未知算法: {selected_alg}")
         
-        elif selected_alg == "进阶CSP算法（成员C）":
-            perf_labels['status'].config(text="CSP算法待接入", foreground="#ff9900")
-            root.after(1000, enable_buttons)
-            is_animating = False
+        except Exception as e:
+            root.after(0, lambda: messagebox.showerror("求解错误", str(e)))
+            root.after(0, lambda: perf_labels['status'].config(text=f"出错", foreground="#cc0000"))
+            root.after(0, enable_buttons)
     
-    except Exception as e:
-        root.after(0, lambda: perf_labels['status'].config(text=f"出错：{str(e)[:20]}", foreground="#cc0000"))
-        root.after(0, enable_buttons)
-        is_animating = False
+    threading.Thread(target=run_solver, daemon=True).start()
 
 def finish_solve(success, result_board, final_perf):
     global is_animating
     is_animating = False
+    
     # 更新最终性能
     perf_labels['time'].config(text=f"{final_perf['time']:.3f} 秒")
     perf_labels['nodes'].config(text=str(final_perf['nodes']))
     perf_labels['backtracks'].config(text=str(final_perf['backtracks']))
+    
     # 更新结果状态
     if success:
         perf_labels['status'].config(text="求解成功", foreground="#00aa00")
         fill_sudoku(result_board)
     else:
         perf_labels['status'].config(text="求解失败（无解）", foreground="#cc0000")
+    
     # 启用按钮
     enable_buttons()
 
 solve_btn = ttk.Button(solve_frame, text="开始求解", command=solve_sudoku)
 solve_btn.pack(side=tk.LEFT, padx=5)
 
-compare_btn = ttk.Button(solve_frame, text="对比所有算法", command=lambda: perf_labels['status'].config(text="对比功能待实现", foreground="#ff9900"))
+def compare_algorithms():
+    """对比所有算法的性能"""
+    sudoku_data = read_sudoku()
+    if all(value == 0 for row in sudoku_data for value in row):
+        messagebox.showwarning("提示", "请先输入或生成数独")
+        return
+    
+    disable_buttons()
+    perf_labels['status'].config(text="正在对比算法...", foreground="#ff9900")
+    
+    def run_comparison():
+        try:
+            results = []
+            
+            # 测试基础DFS算法
+            if BasicSolver:
+                puzzle = deepcopy(sudoku_data)
+                solver = BasicSolver()
+                solution = solver.solve(puzzle)
+                results.append(
+                    f"基础DFS: {solver.stats.solve_time:.3f}秒 "
+                    f"节点:{solver.stats.nodes} 回溯:{solver.stats.backtracks} "
+                    f"{'✓成功' if solution else '✗失败'}"
+                )
+            
+            # 测试MRV+LCV算法
+            if MRVLCVSolver:
+                puzzle = deepcopy(sudoku_data)
+                solver = MRVLCVSolver()
+                solution = solver.solve(puzzle)
+                results.append(
+                    f"MRV+LCV: {solver.stats.solve_time:.3f}秒 "
+                    f"节点:{solver.stats.nodes} 回溯:{solver.stats.backtracks} "
+                    f"{'✓成功' if solution else '✗失败'}"
+                )
+            
+            # 测试AC3+MRV+LCV算法
+            if AC3_MRV_LCV_Solver:
+                puzzle = deepcopy(sudoku_data)
+                solver = AC3_MRV_LCV_Solver()
+                solution = solver.solve(puzzle)
+                results.append(
+                    f"AC3+MRV+LCV: {solver.stats.solve_time:.3f}秒 "
+                    f"节点:{solver.stats.nodes} 回溯:{solver.stats.backtracks} "
+                    f"{'✓成功' if solution else '✗失败'}"
+                )
+            
+            # 显示结果
+            result_text = "\n".join(results)
+            root.after(0, lambda: messagebox.showinfo("算法对比结果", result_text))
+            root.after(0, lambda: perf_labels['status'].config(text="对比完成", foreground="#0066cc"))
+        
+        except Exception as e:
+            root.after(0, lambda: messagebox.showerror("对比失败", str(e)))
+        finally:
+            root.after(0, enable_buttons)
+    
+    threading.Thread(target=run_comparison, daemon=True).start()
+
+compare_btn = ttk.Button(solve_frame, text="对比所有算法", command=compare_algorithms)
 compare_btn.pack(side=tk.LEFT, padx=5)
 
 # ---------------------- 13. 启动主循环 ----------------------
